@@ -39,12 +39,14 @@ export function buildRosterMessage(session) {
 }
 
 function buildBubble({ session, rows, startNumber, counts, page }) {
+  const isConfirmed = session.status === 'confirmed';
+  const isCancelled = session.status === 'cancelled';
   const isOpen = session.status === 'open';
 
   const bubble = {
     type: 'bubble',
     size: 'mega',
-    header: buildHeader(session, counts, isOpen, page),
+    header: buildHeader(session, counts, page),
     body: {
       type: 'box',
       layout: 'vertical',
@@ -56,7 +58,11 @@ function buildBubble({ session, rows, startNumber, counts, page }) {
           : [
               {
                 type: 'text',
-                text: isOpen ? 'ยังไม่มีผู้สมัคร กด +1 เป็นคนแรกเลย!' : 'ไม่มีผู้สมัคร',
+                text: isCancelled
+                  ? '❌ นัดหมายนี้ถูกยกเลิกแล้ว'
+                  : isOpen
+                    ? 'ยังไม่มีผู้สมัคร กด +1 เป็นคนแรกเลย!'
+                    : 'ไม่มีผู้สมัคร',
                 size: 'sm',
                 color: '#9CA3AF',
                 align: 'center',
@@ -66,11 +72,59 @@ function buildBubble({ session, rows, startNumber, counts, page }) {
     },
   };
 
-  if (isOpen) bubble.footer = buildFooter();
+  if (isOpen || isConfirmed) {
+    bubble.footer = buildFooter(session);
+  }
   return bubble;
 }
 
-function buildHeader(session, { total, members, guests }, isOpen, page) {
+function buildHeader(session, { total, members, guests }, page) {
+  const isConfirmed = session.status === 'confirmed';
+  const isCancelled = session.status === 'cancelled';
+  const isOpen = session.status === 'open';
+
+  let badgeText = '● ปิดรับแล้ว';
+  let badgeColor = '#FFFFFF';
+  let badgeBg = '#FFFFFF33';
+  let gradStart = NAVY_DARK;
+  let gradEnd = NAVY;
+
+  if (isConfirmed) {
+    badgeText = '✔ พร้อมเตะ';
+    badgeColor = '#059669';
+    badgeBg = '#FFFFFF';
+    gradStart = '#064E3B';
+    gradEnd = '#059669';
+  } else if (isCancelled) {
+    badgeText = '✕ ยกเลิกนัด';
+    badgeColor = '#FFFFFF';
+    badgeBg = '#EF4444';
+    gradStart = '#374151';
+    gradEnd = '#4B5563';
+  } else if (isOpen) {
+    badgeText = '● กำลังรวมคน';
+    badgeColor = NAVY;
+    badgeBg = '#FFFFFF';
+  }
+
+  let mainTitle = `ผู้เข้าร่วมทั้งหมด ${total} คน`;
+  let subStatusText = null;
+
+  if (isConfirmed) {
+    mainTitle = `พร้อมเตะแล้ว 🔥 (${total} คน)`;
+    subStatusText = 'รวมคนครบตามเป้าหมายแล้ว เจอกันตามนัด!';
+  } else if (isCancelled) {
+    mainTitle = 'ยกเลิกนัดเตะบอล';
+    subStatusText = 'เนื่องจากคนไม่ครบ ไว้เจอกันใหม่รอบหน้านะครับ';
+  } else if (session.targetCount) {
+    mainTitle = `ผู้เข้าร่วม ${total} / ${session.targetCount} คน`;
+    if (total >= session.targetCount) {
+      subStatusText = `🎉 คนครบ ${session.targetCount} คนแล้ว! กด "พร้อมเตะ" ได้เลย`;
+    } else {
+      subStatusText = `(ขาดอีก ${session.targetCount - total} คน จะครบเป้าหมาย)`;
+    }
+  }
+
   const contents = [
     {
       type: 'box',
@@ -82,7 +136,7 @@ function buildHeader(session, { total, members, guests }, isOpen, page) {
           type: 'box',
           layout: 'vertical',
           flex: 0,
-          backgroundColor: isOpen ? '#FFFFFF' : '#FFFFFF33',
+          backgroundColor: badgeBg,
           cornerRadius: '12px',
           paddingStart: '10px',
           paddingEnd: '10px',
@@ -91,17 +145,29 @@ function buildHeader(session, { total, members, guests }, isOpen, page) {
           contents: [
             {
               type: 'text',
-              text: isOpen ? '● เปิดรับสมัคร' : '● ปิดรับแล้ว',
+              text: badgeText,
               size: 'xxs',
               weight: 'bold',
-              color: isOpen ? NAVY : '#FFFFFF',
+              color: badgeColor,
             },
           ],
         },
       ],
     },
-    { type: 'text', text: `ผู้เข้าร่วมทั้งหมด ${total} คน`, size: 'xl', weight: 'bold', color: '#FFFFFF', margin: 'md' },
+    { type: 'text', text: mainTitle, size: 'xl', weight: 'bold', color: '#FFFFFF', margin: 'md', wrap: true },
   ];
+
+  if (subStatusText) {
+    contents.push({
+      type: 'text',
+      text: subStatusText,
+      size: 'xs',
+      weight: 'bold',
+      color: isConfirmed ? '#A7F3D0' : '#FDE68A',
+      margin: 'xs',
+      wrap: true,
+    });
+  }
 
   if (guests > 0) {
     contents.push({
@@ -113,16 +179,15 @@ function buildHeader(session, { total, members, guests }, isOpen, page) {
     });
   }
 
-  const dateLine = [`เตะบอล${formatThaiDate(session.openedAt)}`, session.note, page && `หน้า ${page}`]
-    .filter(Boolean)
-    .join(' • ');
+  const matchInfo = session.note ? `⚽ ${session.note}` : `เตะบอล${formatThaiDate(session.openedAt)}`;
+  const dateLine = [matchInfo, page && `หน้า ${page}`].filter(Boolean).join(' • ');
   contents.push({ type: 'text', text: dateLine, size: 'xs', color: '#FFFFFFB3', margin: 'xs', wrap: true });
 
   return {
     type: 'box',
     layout: 'vertical',
     paddingAll: '20px',
-    background: { type: 'linearGradient', angle: '135deg', startColor: NAVY_DARK, endColor: NAVY },
+    background: { type: 'linearGradient', angle: '135deg', startColor: gradStart, endColor: gradEnd },
     contents,
   };
 }
@@ -178,7 +243,60 @@ function buildAvatar(entry, displayName) {
   };
 }
 
-function buildFooter() {
+function buildFooter(session) {
+  const isConfirmed = session.status === 'confirmed';
+
+  if (isConfirmed) {
+    const calendarUrl = buildCalendarUrl(session);
+    return {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      paddingAll: '16px',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#059669',
+          height: 'sm',
+          action: {
+            type: 'uri',
+            label: '📅 บันทึกลงปฏิทินมือถือ',
+            uri: calendarUrl,
+          },
+        },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'button',
+              style: 'secondary',
+              height: 'sm',
+              action: { type: 'message', label: '-1 ถอนชื่อ', text: '-1' },
+            },
+            {
+              type: 'button',
+              style: 'secondary',
+              height: 'sm',
+              action: { type: 'message', label: '➕ เปิดรับเพิ่ม', text: 'เปิดรับ' },
+            },
+          ],
+        },
+        {
+          type: 'text',
+          text: 'กดปุ่มสีเขียวเพื่อเพิ่มนัดหมายลงในปฏิทินมือถือได้ทันที 📅',
+          size: 'xxs',
+          color: '#6B7280',
+          align: 'center',
+          margin: 'sm',
+          wrap: true,
+        },
+      ],
+    };
+  }
+
   return {
     type: 'box',
     layout: 'vertical',
@@ -206,6 +324,25 @@ function buildFooter() {
         ],
       },
       {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🔥 พร้อมเตะ', text: 'พร้อมเตะ' },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '❌ ยกเลิกนัด', text: 'ยกเลิก' },
+          },
+        ],
+      },
+      {
         type: 'text',
         text: 'พาเพื่อนมา พิมพ์ +1 ตามด้วยชื่อ เช่น +1 บอส',
         size: 'xxs',
@@ -216,6 +353,16 @@ function buildFooter() {
       },
     ],
   };
+}
+
+function buildCalendarUrl(session) {
+  const title = encodeURIComponent('⚽ เตะบอล SUNSAOWAREE AC');
+  const attendees = (session.entries || []).map((e, i) => `${i + 1}. ${e.name}`).join('\n');
+  const details = encodeURIComponent(
+    `⚽ นัดเตะบอลกลุ่ม SUNSAOWAREE AC\nสถานที่/โน้ต: ${session.note || '-'}\n\nผู้เข้าร่วม (${session.entries?.length || 0} คน):\n${attendees}`
+  );
+  const location = encodeURIComponent(session.note || 'สนามฟุตบอล');
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}`;
 }
 
 function formatThaiDate(isoString) {

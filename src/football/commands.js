@@ -1,26 +1,4 @@
-/**
- * Football registration commands.
- *
- *   เตะบอลวันนี้ [โน้ต]   open a new session (optional note e.g. "18:00 สนามA")
- *   เปิดรับ              re-open a closed session (keeps the list)
- *   ปิดรับ               close registration
- *   รายชื่อ              show the roster card
- *   คำสั่ง / help        show help
- *
- *   +1                 join yourself
- *   +3                 yourself + 2 unnamed friends
- *   +1 บอส             add friend "บอส" (you are NOT added)
- *   +2 บอส             yourself + friend "บอส"
- *   +บอส, เจ           add friends "บอส" and "เจ"
- *
- *   -1                 withdraw yourself
- *   -1 บอส             withdraw friend "บอส" (own friends first, then anyone's)
- *   -2                 withdraw yourself + your latest friend
- *   -1 ติดงาน          no friend named that → treated as plain -1
- *
- * Rule of thumb: the number is the total; names are friends; you are included
- * when the number is bigger than the number of names.
- */
+
 import { buildRosterMessage } from './flexCard.js';
 
 const OPEN_KEYWORD = 'เตะบอลวันนี้';
@@ -29,10 +7,12 @@ const MAX_COUNT = 20;
 const HELP_TEXT = [
   '⚽ คำสั่งบอทเตะบอล',
   '',
-  'เตะบอลวันนี้ — เปิดรับสมัคร',
-  '   (ใส่โน้ตต่อท้ายได้ เช่น เตะบอลวันนี้ 18:00 สนามA)',
-  'รายชื่อ — ดูรายชื่อ',
-  'ปิดรับ / เปิดรับ — ปิดหรือเปิดรับสมัครอีกครั้ง',
+  'เตะบอล [วันเวลา] [สนาม] [จำนวนคน]',
+  '   เช่น: เตะบอล 14 คน เสาร์ 25 ต.ค. 19:00 สนามA',
+  'รายชื่อ — ดูรายชื่อผู้สมัคร',
+  'พร้อมเตะ — คนครบแล้ว ยืนยันนัดหมาย + บันทึกปฏิทิน',
+  'ยกเลิก — ยกเลิกนัดรอบนี้ (คนไม่ครบ)',
+  'เปิดรับ / ปิดรับ — ปิดหรือเปิดรับสมัครอีกครั้ง',
   '',
   '+1 — สมัคร',
   '-1 — ถอนชื่อ',
@@ -52,12 +32,35 @@ function normalize(text) {
     .trim();
 }
 
+/** ดึงจำนวนเป้าหมายคนจากข้อความ เช่น "14 คน", "(14 คน)", "(14)" */
+function extractTargetCount(rawNote) {
+  if (!rawNote) return { note: null, targetCount: null };
+  let note = rawNote;
+  let targetCount = null;
+  const countMatch = note.match(/(?:[\(（])?\s*(\d{1,2})\s*คน\s*(?:[\)）])?/) || note.match(/[\(（]\s*(\d{1,2})\s*[\)）]/);
+  if (countMatch) {
+    targetCount = Number(countMatch[1]);
+    note = note.replace(countMatch[0], '').replace(/\s+/g, ' ').trim();
+  }
+  return { note: note || null, targetCount };
+}
+
 export function parseCommand(rawText) {
   const text = normalize(rawText ?? '');
 
-  if (text === OPEN_KEYWORD || text.startsWith(`${OPEN_KEYWORD} `)) {
-    return { type: 'open', note: text.slice(OPEN_KEYWORD.length).trim() || null };
+  // คำสั่งเปิดรับสมัคร: เตะบอล, เตะบอลวันนี้, นัดเตะบอล
+  const openMatch = text.match(/^(?:นัด)?เตะบอล(?:วันนี้)?(?:\s+(.*))?$/s);
+  if (openMatch) {
+    const rawNote = (openMatch[1] ?? '').trim();
+    if (/^(ไหม|มั้ย|ปะ|ป่ะ|หรือเปล่า|วันไหน)/.test(rawNote)) {
+      return null;
+    }
+    const { note, targetCount } = extractTargetCount(rawNote);
+    return { type: 'open', note, targetCount };
   }
+
+  if (text === 'พร้อมเตะ' || text === 'คนครบแล้ว' || text === 'ครบแล้ว') return { type: 'confirm' };
+  if (text === 'ยกเลิก' || text === 'ยกเลิกนัด' || text === 'ไม่เตะแล้ว') return { type: 'cancel' };
   if (text === 'เปิดรับ') return { type: 'reopen' };
   if (text === 'ปิดรับ') return { type: 'close' };
   if (text === 'รายชื่อ') return { type: 'list' };
@@ -105,8 +108,16 @@ export function createFootballHandler({ lineClient, store }) {
     }
   }
 
-  function newSession(note) {
-    return { status: 'open', note, openedAt: new Date().toISOString(), entries: [] };
+  function newSession(note, targetCount, creatorUserId, creatorName) {
+    return {
+      status: 'open',
+      note: note || null,
+      targetCount: targetCount || null,
+      creatorUserId: creatorUserId || null,
+      creatorName: creatorName || null,
+      openedAt: new Date().toISOString(),
+      entries: [],
+    };
   }
 
   /** Returns LINE messages to reply with, or null to stay silent. */
@@ -124,17 +135,40 @@ export function createFootballHandler({ lineClient, store }) {
         return [textMsg(HELP_TEXT)];
 
       case 'open': {
+        const profile = await getProfile(source);
         if (session?.status === 'open') {
           if (cmd.note) session.note = cmd.note;
+          if (cmd.targetCount) session.targetCount = cmd.targetCount;
         } else {
-          session = newSession(cmd.note);
+          session = newSession(cmd.note, cmd.targetCount, userId, profile.name);
         }
         await store.saveSession(chatId, session);
         return [buildRosterMessage(session)];
       }
 
+      case 'confirm': {
+        if (!session || session.status === 'cancelled') {
+          return [textMsg('ยังไม่มีการเปิดนัดเตะบอลครับ พิมพ์ "เตะบอล" เพื่อเริ่มนัดใหม่')];
+        }
+        session.status = 'confirmed';
+        await store.saveSession(chatId, session);
+        return [
+          textMsg('🔥 ยืนยันนัดหมายเรียบร้อย! คนครบพร้อมเตะแล้วครับ อย่าลืมกด "บันทึกลงปฏิทิน" ด้านล่างกันนะครับ 📅'),
+          buildRosterMessage(session),
+        ];
+      }
+
+      case 'cancel': {
+        if (!session || session.status === 'cancelled') {
+          return [textMsg('ไม่มีนัดที่เปิดอยู่ครับ')];
+        }
+        session.status = 'cancelled';
+        await store.saveSession(chatId, session);
+        return [textMsg('❌ ยกเลิกนัดเตะบอลรอบนี้เรียบร้อยครับ ไว้เจอกันใหม่รอบหน้านะครับ'), buildRosterMessage(session)];
+      }
+
       case 'reopen': {
-        if (!session) session = newSession(null);
+        if (!session) session = newSession(null, null, userId, null);
         session.status = 'open';
         await store.saveSession(chatId, session);
         return [buildRosterMessage(session)];
@@ -148,7 +182,7 @@ export function createFootballHandler({ lineClient, store }) {
       }
 
       case 'list':
-        if (!session) return [textMsg('ยังไม่มีการเปิดรับสมัคร พิมพ์ "เตะบอลวันนี้" เพื่อเปิด')];
+        if (!session) return [textMsg('ยังไม่มีการเปิดรับสมัคร พิมพ์ "เตะบอล" เพื่อเปิด')];
         return [buildRosterMessage(session)];
 
       case 'join':
@@ -163,8 +197,12 @@ export function createFootballHandler({ lineClient, store }) {
   }
 
   async function handleJoin(cmd, session, chatId, source, userId) {
-    if (!session) return [textMsg('ยังไม่เปิดรับสมัคร พิมพ์ "เตะบอลวันนี้" เพื่อเปิดก่อนนะครับ')];
-    if (session.status !== 'open') return [textMsg('🔒 ปิดรับสมัครแล้วครับ')];
+    if (!session) return [textMsg('ยังไม่เปิดรับสมัคร พิมพ์ "เตะบอล" เพื่อเปิดก่อนนะครับ')];
+    if (session.status === 'cancelled') return [textMsg('❌ นัดนี้ถูกยกเลิกแล้วครับ พิมพ์ "เตะบอล" เพื่อเปิดนัดใหม่')];
+    if (session.status === 'closed') return [textMsg('🔒 ปิดรับสมัครแล้วครับ (พิมพ์ "เปิดรับ" เพื่อเปิดใหม่)')];
+    if (session.status === 'confirmed') {
+      return [textMsg('🔥 นัดนี้ยืนยันพร้อมเตะแล้วครับ หากต้องการเพิ่มคนให้พิมพ์ "เปิดรับ" ก่อนนะครับ')];
+    }
 
     const profile = await getProfile(source);
     const now = new Date().toISOString();

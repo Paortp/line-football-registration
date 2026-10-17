@@ -37,6 +37,9 @@ export const postgresStore = {
         id: s.id,
         status: s.status,
         note: s.note,
+        targetCount: s.target_count ? Number(s.target_count) : null,
+        creatorUserId: s.creator_user_id || null,
+        creatorName: s.creator_name || null,
         openedAt: new Date(s.opened_at).toISOString(),
         entries: entriesRes.rows.map((r) => ({
           type: r.type,
@@ -61,14 +64,22 @@ export const postgresStore = {
     try {
       await client.query('BEGIN');
 
-      const isClosed = session.status === 'closed';
+      const isClosed = session.status === 'closed' || session.status === 'cancelled';
       const closedAt = isClosed ? new Date().toISOString() : null;
 
       if (session.id) {
         // อัปเดตรอบเดิม
         await client.query(
-          'UPDATE sessions SET status = $1, note = $2, closed_at = $3 WHERE id = $4',
-          [session.status, session.note, closedAt, session.id]
+          'UPDATE sessions SET status = $1, note = $2, target_count = $3, creator_user_id = $4, creator_name = $5, closed_at = $6 WHERE id = $7',
+          [
+            session.status,
+            session.note,
+            session.targetCount || null,
+            session.creatorUserId || null,
+            session.creatorName || null,
+            closedAt,
+            session.id,
+          ]
         );
 
         // แทนที่ entries ทั้งหมดในรอบนี้เพื่อความถูกต้องตรงกับ state
@@ -76,8 +87,17 @@ export const postgresStore = {
       } else {
         // สร้างรอบใหม่
         const insertRes = await client.query(
-          'INSERT INTO sessions (chat_id, status, note, opened_at, closed_at) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-          [chatId, session.status, session.note, session.openedAt || new Date().toISOString(), closedAt]
+          'INSERT INTO sessions (chat_id, status, note, target_count, creator_user_id, creator_name, opened_at, closed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+          [
+            chatId,
+            session.status,
+            session.note,
+            session.targetCount || null,
+            session.creatorUserId || null,
+            session.creatorName || null,
+            session.openedAt || new Date().toISOString(),
+            closedAt,
+          ]
         );
         session.id = insertRes.rows[0].id;
       }
