@@ -1,0 +1,20 @@
+{
+  "name": "line-football-registration",
+  "version": "0.1.0",
+  "description": "SUNSAOWAREE AC LINE Football Bot - register/withdraw for football via LINE group",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^11.3.0",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  }
+}
