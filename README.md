@@ -39,14 +39,14 @@
 
 ```mermaid
 flowchart TD
-    User["👥 สมาชิกในกลุ่ม LINE"] -->|พิมพ์ +1 / เตะบอล| LINE["LINE Messaging API"]
-    LINE -->|Webhook (HTTPS)| Tunnel["Cloudflare / ngrok / Render"]
+    User["👥 สมาชิกในกลุ่ม LINE"] -->|"พิมพ์ +1 หรือ เตะบอล"| LINE["LINE Messaging API"]
+    LINE -->|"Webhook HTTPS"| Tunnel["Cloudflare / ngrok / Render"]
     Tunnel --> Webhook["src/index.js (Express Webhook)"]
     Webhook --> Auth["ตรวจลายเซ็น x-line-signature"]
     Auth --> Router["src/football/commands.js"]
     Router <--> DB[("Neon Serverless PostgreSQL")]
     Router --> Builder["src/football/flexCard.js"]
-    Builder -->|Flex Message Card + ปุ่ม Calendar| LINE
+    Builder -->|"Flex Message Card & ปุ่ม Calendar"| LINE
 ```
 
 ---
