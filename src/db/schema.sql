@@ -3,8 +3,11 @@
 CREATE TABLE IF NOT EXISTS sessions (
     id SERIAL PRIMARY KEY,
     chat_id VARCHAR(64) NOT NULL,
-    status VARCHAR(16) NOT NULL DEFAULT 'open',
+    status VARCHAR(16) NOT NULL DEFAULT 'open', -- 'open', 'confirmed', 'cancelled', 'closed'
     note TEXT,
+    target_count INTEGER,
+    creator_user_id VARCHAR(64),
+    creator_name VARCHAR(128),
     opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_at TIMESTAMPTZ
 );
